@@ -20,7 +20,7 @@ if __name__ == "__main__":
     
     model = YOLO("yolov8m.pt")
     
-    lan.start("192.168.50.33", 9999, frame_shape=(360, 640))
+    lan.start("10.0.0.119", 9999, frame_shape=(360, 640))
    
     motor_vals = [0] * 10
     sensor_vals = np.zeros((20,), np.int32)
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
     screen.fill((63, 63, 63))
     
-    keys_letters={'a':0, 'w':0, 's':0, 'd':0, 'UP':0, 'DOWN':0, 'LEFT':0, 'RIGHT':0, 'q':0}
+    keys_letters = {k[2:]: 0 for k in dir(pygame) if k.startswith("K_")}
     key_number_mappings={
         97: 'a',
         119: 'w',
