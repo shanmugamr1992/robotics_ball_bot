@@ -4,6 +4,11 @@ import time
 import sys
 
 if __name__ == "__main__":
-  r = Robot(run_on_nano=sys.argv[1])
+  if sys.argv[1] == "True":
+    run_on_nano=True
+  else:
+    run_on_nano=False
+
+  r = Robot(run_on_nano=run_on_nano)
   time.sleep(2)
   r.run()
