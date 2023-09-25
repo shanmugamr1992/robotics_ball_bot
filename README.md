@@ -4,7 +4,8 @@
 ```
 ssh shanshah@10.0.0.119
 cd robotics_ball_bot
-python3 run_robot.py True```
+python3 run_robot.py True
+```
 
 ### To run over LAN:
 First on the jetson Nano do the following
