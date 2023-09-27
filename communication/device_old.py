@@ -39,13 +39,24 @@ def handle_signal(sig, frame):
 signal.signal(signal.SIGINT, handle_signal)
 
 class RealsenseCamera:
-  def __init__(self, width=640, height=360, autostart=True):
-    """
-    Initialize a realsense camera on this device
-    """
+  def __init__(self, width=640, height=360):
     self.width = width
     self.height = height
     self.shape = (height, width)
+
+    self.pipeline = rs.pipeline()
+    
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, 30)
+    profile = self.pipeline.start(config)
+    # intel realsense on jetson nano sometimes get misdetected as 2.1 even though it has 3.2 USB
+    # profile = self.pipeline.start()
+
+    depth_sensor = profile.get_device().first_depth_sensor()
+    self.depth_scale = depth_sensor.get_depth_scale()
+
+    self.align = rs.align(rs.stream.color)
 
     # self.intrinsic_matrix = self.metadata.intrinsics.intrinsic_matrix
     # used for USB 2.1 as found on the jetson nano
@@ -62,33 +73,6 @@ class RealsenseCamera:
 
     self.hfov = np.degrees(np.arctan2(self.width  / 2, self.fx)) * 2
     self.vfov = np.degrees(np.arctan2(self.height / 2, self.fy)) * 2
-    self.pipeline = None
-    self.depth_scale = 0.001
-    self.align = None
-    if autostart:
-      self.open()
-
-  def open(self):
-    try:
-      self.pipeline = rs.pipeline()
-      
-      config = rs.config()
-      config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, 30)
-      config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, 30)
-      profile = self.pipeline.start(config)
-      # intel realsense on jetson nano sometimes get misdetected as 2.1 even though it has 3.2 USB
-      # profile = self.pipeline.start()
-
-      depth_sensor = profile.get_device().first_depth_sensor()
-      self.depth_scale = depth_sensor.get_depth_scale()
-      self.align = rs.align(rs.stream.color)
-
-    except Exception as e:
-      try:
-        self.pipeline.stop()
-      except:
-        pass
-      self.pipeline = None
 
   def capture(self) -> Tuple[bool, np.ndarray, np.ndarray]:
     """
@@ -100,10 +84,7 @@ class RealsenseCamera:
     Returns:
         Tuple[bool, np.ndarray, np.ndarray]: status, color image, depth image
     """
-    if self.pipeline is None:
-      self.open()
-
-    if self.pipeline is not None:
+    if self.pipeline:
       try:
         frames = self.pipeline.wait_for_frames()
         aligned_frames = self.align.process(frames)
@@ -148,6 +129,3 @@ class RealsenseCamera:
     combined = np.hstack((color, self.depth2rgb(depth)))
     cv2.imshow("combined", combined)
     cv2.waitKey(1)
-
-  def connected(self):
-    return self.pipeline is not None
