@@ -6,7 +6,7 @@ class LanCommunication:
         lan.start(ip, port, frame_shape=(360, 640))  
 
     def get_sensor_readings(self):
-        return lan.read()[1:]
+        return lan.read()
 
     def get_camera_pic(self):
         return lan.get_frame() 
