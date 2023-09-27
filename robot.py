@@ -54,9 +54,13 @@ class Robot:
         balls_detected = self.object_detection_module.get_ball_detections(color_image, depth_image)
         return balls_detected[0]        
         
-    def get_potentiometer_reading(self):
+    def get_lever_potentiometer_reading(self):
         sensor_readings = self.communication_module.get_sensor_readings()
-        return sensor_readings[0]
+        return sensor_readings[0] 
+
+    def get_claw_potentiometer_reading(self):
+        sensor_readings = self.communication_module.get_sensor_readings()
+        return sensor_readings[1] 
 
     def get_camera_pic(self):
         return self.communication_module.get_camera_pic() 
@@ -116,13 +120,13 @@ class Robot:
         # Need to give mild voltage to hold the ball intact
         self.clear_motors(claw_has_ball)
         # Beyond this gravity will bring it down
-        while self.get_potentiometer_reading() > self.lever_down_potentiometer_reading:
+        while self.get_lever_potentiometer_reading() > self.lever_down_potentiometer_reading:
             self.motor_vals[6] = -40
             self.send_motor_vals()
                
     def lever_up(self, claw_has_ball = False):
         self.clear_motors(claw_has_ball)    
-        while self.get_potentiometer_reading() < self.lever_up_potentiometer_reading:
+        while self.get_lever_potentiometer_reading() < self.lever_up_potentiometer_reading:
             self.motor_vals[6] = 40
             self.send_motor_vals()      
         self.clear_motors(claw_has_ball)

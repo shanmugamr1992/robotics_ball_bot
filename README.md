@@ -10,7 +10,7 @@ To kill the process
 ```
 ps aux | grep python3 | grep run_robot
 Note the second column number (PID)
-ps kill -9 <PID-HERE>
+sudo kill -9 <PID-HERE>
 ```
 
 ### To run over LAN:
