@@ -1,5 +1,8 @@
 __pycache__
 object_detection/__pycache__
 communication/__pycache__
+april_tags/__pycache__
 .ipynb_checkpoints
 communication/.ipynb_checkpoints
+april_tags/.ipynb_checkpoints
+object_detection/.ipynb_checkpoints
