@@ -3,6 +3,8 @@ from robot import Robot
 import time
 import sys
 
+# ADDING THIS FEATURE
+
 if __name__ == "__main__":
   if sys.argv[1] == "True":
     run_on_nano=True
