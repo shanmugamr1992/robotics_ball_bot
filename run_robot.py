@@ -11,6 +11,6 @@ if __name__ == "__main__":
   else:
     run_on_nano=False
 
-  r = Robot(run_on_nano=run_on_nano)
+  r = Robot(run_on_nano=run_on_nano,ip = "192.168.50.33")
   time.sleep(2)
   r.run()
