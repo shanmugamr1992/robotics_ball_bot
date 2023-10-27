@@ -6,13 +6,14 @@ import sys
 from object_detection.object_detection import ObjectDetection
 from communication.communication_module import CommunicationModule
 from object_detection.ball_bbox import Ballbbox
+from april_tags.april_tag import AprilTag
 
 class Robot:
     def __init__(
         self, ip = "10.0.0.119", ball_should_be_within = (341, 255, 422, 338), 
         model="yolov8s.pt", port=9999, distance_threshold=200,
         lever_down_potentiometer_reading = 3300, lever_up_potentiometer_reading = 3680,
-        forward_speed = 38, turning_speed = 45, tolerance = 4, compute_reference_box = False, run_on_nano=False):
+        long_dist_increase_speed_delta = 5, dist_threshold = 50, forward_speed = 35, turning_speed = 40, tolerance = 4, compute_reference_box = False, angle_threshold = 10, run_on_nano=False):
 
         self.communication_module = CommunicationModule.get_module(run_on_nano, ip, port)   
         self.clear_motors()
@@ -26,6 +27,10 @@ class Robot:
         self.turning_speed = turning_speed
         self.tolerance = tolerance
         self.run_on_nano = run_on_nano
+        self.dist_threshold = dist_threshold
+        self.long_dist_increase_speed_delta = long_dist_increase_speed_delta
+        self.april_tag_module = AprilTag()
+        self.angle_threshold = angle_threshold
 
         if compute_reference_box:
             self.reference_bbox = self.compute_reference_box()
@@ -156,12 +161,12 @@ class Robot:
             if not self.run_on_nano:
                 self.display(color_image, current_target_bbox, iou)
             tolerance = max(abs(current_target_bbox.midy - reference_bbox.midy)*.1, self.tolerance)
+
             fspeed = None
             tspeed = None
-            dist = current_target_bbox.depth_in_cm
-            if current_target_bbox.depth_in_cm > 55 :
-                fspeed = 40
-                tspeed = 45
+            if current_target_bbox.depth_in_cm > self.distance_threshold :
+                fspeed = self.forward_speed + self.long_dist_increase_speed_delta
+                tspeed = self.turning_speed + self.long_dist_increase_speed_delta
             
             if abs(current_target_bbox.midx - reference_bbox.midx) < tolerance:                   
                 self.move_backward(fspeed) if current_target_bbox.midy > reference_bbox.midy else self.move_forward(fspeed)
@@ -191,11 +196,84 @@ class Robot:
         self.close_claw()
         self.lever_up(claw_has_ball = True)
         return True # TODO: Should return true or false based on pickup
+    
+    def almost_reached_wall(self, x, y, target_angle, current_angle): 
+        diff_in_angles = min((target_angle - current_angle)%360, (current_angle - target_angle)%360)
+        target_close_to_wall = False
+        if target_angle == 0 and x > 134:
+            target_close_to_wall = True
+        elif target_angle == 90 and y > 62:
+            target_close_to_wall = True
+        elif target_angle == 180 and x < 10:
+            target_close_to_wall = True
+        elif target_angle == 270 and y < 10:
+            target_close_to_wall = True
+        else:
+            return False
+        if target_close_to_wall and diff_in_angles < self.angle_threshold:
+            return True
+        else:
+            return False
 
-    def move_to_opp_wall(self):
+    def move_to_target_wall(self, target_angle):
+        x, y, current_angle = self.april_tag_module.localize()
+        almost_reached_wall = self.almost_reached_wall(x,y,target_angle,current_angle)
+        while not almost_reached_wall:
+            #TODO Might have to make angle threshold small initally and increase it we get close tot he wall, doesn't matter. 
+            diff_in_angles = min((target_angle - current_angle)%360, (current_angle - target_angle)%360)
+            if diff_in_angles < self.angle_threshold:
+                self.move_forward()
+            elif target_angle in [0, 90, 180]:
+                if current_angle < 180:
+                    self.turn_right()
+                else:
+                    self.turn_left()
+            else:
+                if current_angle > 180 and current_angle < 270:
+                    self.turn_left()
+                else :
+                    self.turn_right()
+                
+            x, y, current_angle = self.april_tag_module.localize()
+            almost_reached_wall = self.almost_reached_wall(x,y,target_angle,current_angle)
+    
         self.move_forward()
-        time.sleep(2)
-        # TODO : Should implement this
+        time.sleep(2) # Its okay if the bot hits the wall. Go little extra
+        self.clear_motors
+        
+    def find_target_angle(self, x, y):
+        """
+            Angle : +x axis => 0 , +y axis => 90
+           (0,72)                                       (144,72)
+            -----------------------W2---------------------
+            |                                            |
+            |                                            |
+            W1                                           W4
+            |                                            |
+            |                                            |
+            -----------------------W0---------------------
+           (0,0)                                        (144,0)
+        """
+        # TODO Can add weighting to give more importance to W0
+                      # w0, w1,   w2,    w3
+        dist_to_walls = [y, x, 72 - y, 144 - x] 
+        min_idx = dist_to_walls.index(min(dist_to_walls))
+        if min_idx == 0:
+            return 270
+        elif min_idx == 1 :
+            return 180
+        elif min_idx == 2:
+            return 90
+        else:
+            return 0
+
+    def move_to_drop_off_location(self):
+        location = self.april_tag_module.localize() 
+        while location is None:
+            self.random_walk()    
+        x, y, _ = location
+        angle = self.find_target_angle(x, y)
+        self.move_to_target_wall(angle)
 
     def drop_ball_and_reset(self):
         self.lever_down(claw_has_ball = True)
@@ -231,6 +309,6 @@ class Robot:
             if not self.pickup_ball():
                 continue
 
-            self.move_to_opp_wall()
+            self.move_to_drop_off_location()
 
             self.drop_ball_and_reset()

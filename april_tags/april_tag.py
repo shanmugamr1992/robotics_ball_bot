@@ -42,7 +42,8 @@ class AprilTag:
     def localize(self, tags):
       # use the formula present in the video, just with the first tag
       if len(tags) == 0: return None
-      tag = tags[0] #Can also sort and get the one with highest margin or a weighted average
+      #TODO Can also sort and get the one with highest margin or a weighted average
+      tag = tags[0]
       T_camera_apriltag = self.Rt2T(tag.pose_R, tag.pose_t)
       T_apriltag_camera = np.linalg.inv(T_camera_apriltag)
         
