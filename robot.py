@@ -29,7 +29,7 @@ class Robot:
         self.run_on_nano = run_on_nano
         self.dist_threshold = dist_threshold
         self.long_dist_increase_speed_delta = long_dist_increase_speed_delta
-        self.april_tag_module = AprilTag()
+        self.april_tag_module = AprilTag(run_on_nano)
         self.angle_threshold = angle_threshold
 
         if compute_reference_box:
@@ -216,7 +216,8 @@ class Robot:
             return False
 
     def move_to_target_wall(self, target_angle):
-        x, y, current_angle = self.april_tag_module.localize()
+        color_image,_ = self.get_camera_pic()
+        x, y, current_angle = self.april_tag_module.get_position_and_rotation_of_camera(color_image)
         almost_reached_wall = self.almost_reached_wall(x,y,target_angle,current_angle)
         while not almost_reached_wall:
             #TODO Might have to make angle threshold small initally and increase it we get close tot he wall, doesn't matter. 
@@ -233,8 +234,9 @@ class Robot:
                     self.turn_left()
                 else :
                     self.turn_right()
-                
-            x, y, current_angle = self.april_tag_module.localize()
+
+            color_image, _ = self.get_camera_pic()    
+            x, y, current_angle = self.april_tag_module.get_position_and_rotation_of_camera(color_image)
             almost_reached_wall = self.almost_reached_wall(x,y,target_angle,current_angle)
     
         self.move_forward()
@@ -268,7 +270,8 @@ class Robot:
             return 0
 
     def move_to_drop_off_location(self):
-        location = self.april_tag_module.localize() 
+        color_image,_ = self.get_camera_pic()
+        location = self.april_tag_module.get_position_and_rotation_of_camera(color_image) 
         while location is None:
             self.random_walk()    
         x, y, _ = location

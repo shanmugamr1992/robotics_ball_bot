@@ -1,11 +1,13 @@
-from scipy.spatial.transform import Rotation
-from pyapriltags import Detector
 from .tags import Tags
 import cv2
 import numpy as np
 
 class AprilTag:
-    def __init__(self):
+    def __init__(self, run_on_nano=False):
+        if run_on_nano:
+            from dt_apriltags import Detector
+        else:
+            from pyapriltags import Detector
         self.detector = Detector(families='tag16h5',
                         nthreads=1,
                         quad_decimate=1.0,
@@ -29,7 +31,7 @@ class AprilTag:
             camera_params=self.camera_params,
             tag_size=self.tag_size)
         
-        tags = [tag for tag in tags if tag.decision_margin > 50 and tag.tag_id in self.tag_poses.keys()]
+        tags = [tag for tag in tags if tag.decision_margin > 30 and tag.tag_id in self.tag_poses.keys()]
         return tags  
 
     def Rt2T(self, R, t):
@@ -43,21 +45,23 @@ class AprilTag:
       # use the formula present in the video, just with the first tag
       if len(tags) == 0: return None
       #TODO Can also sort and get the one with highest margin or a weighted average
-      tag = tags[0]
+      tag = tags[0] #
       T_camera_apriltag = self.Rt2T(tag.pose_R, tag.pose_t)
       T_apriltag_camera = np.linalg.inv(T_camera_apriltag)
         
       T_map_apriltag = self.tag_poses[tag.tag_id]
       
-      T_map_robot = T_map_apriltag @ T_apriltag_camera
-      return T_map_robot
+      T_map_camera = T_map_apriltag @ T_apriltag_camera
+      return T_map_camera
 
     def get_position_and_rotation_of_camera(self, color_image):
         tags = self.detect_tags(color_image)
         T_matrix = self.localize(tags)
         if T_matrix is not None: 
             x, y = T_matrix[0, 3], T_matrix[1, 3]
-            yaw = Rotation.from_matrix(T_matrix[:3, :3]).as_euler("zyx", degrees=True)[0]
+            Tinv = np.linalg.inv(T_matrix)
+            yaw = np.degrees(np.arctan2(Tinv[2,1],Tinv[2,0]))
+            #yaw = Rotation.from_matrix(T_matrix[:3, :3]).as_euler("zyx", degrees=True)[0]
             return (x,y,yaw)
         else:
             return None
