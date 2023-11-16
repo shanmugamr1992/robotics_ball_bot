@@ -168,7 +168,8 @@ class Robot:
                 min_dist = dist
         return target_bbox
 
-    def move_to_target_ball_bbox(self, current_target_bbox, color_image):
+    def move_to_target_ball_bbox(self, current_target_bbox):
+        color_image, _ = self.get_camera_pic(usb_cam=True)
         self.clear_motors()
         reference_bbox = self.reference_bbox
         # TODO : Maybe have some time constraint as well (1 min) if not sw
@@ -309,7 +310,8 @@ class Robot:
         location = self.april_tag_module.get_position_and_rotation_of_camera(
             color_image)
         while location is None:
-            self.random_walk()
+            self.random_walk_till_detection(
+                detect_object="april_tag")
         x, y, _ = location
         angle = self.find_target_angle(x, y)
         self.move_to_target_wall(angle)
@@ -318,30 +320,45 @@ class Robot:
         self.lever_down(claw_has_ball=True)
         self.open_claw()
         self.lever_up()
-        self.move_backward()
-        time.sleep(2)
+        forward_time = time.time() + 2
+        while time.time() < forward_time:
+            self.move_backward()
         self.clear_motors()
 
-    def random_walk(self):
-        # Just going to turn around here
-        self.turn_right()
-        # If after 5 seconds we dont ifnd a ball we turn left
-        # If after 5 seconds we dont find a ball we move back and do same as above
-        # If after 5 seconds we dont find we move forward and do the same
+    def random_walk_till_detection(self, detect_object="ball"):
+        # Turn right for 5 seconds, then left for 5 seconds then move back for 2 seconds and repeat
+        curr_time = time.time()
+        while True:
+            if detect_object == "ball":
+                color_image, depth_image = self.get_camera_pic(usb_cam=True)
+                if not self.run_on_nano:
+                    self.display(color_image, None, 0)
+                balls_detected = self.object_detection_module.get_ball_detections(
+                    color_image, depth_image)
+                if len(balls_detected) > 0:
+                    return balls_detected
+            else:
+                color_image, _ = self.get_camera_pic()
+                location = self.april_tag_module.get_position_and_rotation_of_camera(
+                    color_image)
+                if location is not None:
+                    return location
+
+            if time.time() < curr_time + 5:
+                self.turn_right()
+            elif time.time() < curr_time + 10:
+                self.turn_left()
+            else:
+                self.move_backward()
+                time.sleep(2)
+                self.clear_motors()
+                curr_time = time.time()
 
     def run(self):
 
         while True:
-            self.random_walk()
-            color_image, depth_image = self.get_camera_pic(usb_cam=True)
-            if not self.run_on_nano:
-                self.display(color_image, None, 0)
-            balls_detected = self.object_detection_module.get_ball_detections(
-                color_image, depth_image)
-
-            # No balls are detected
-            if len(balls_detected) == 0:
-                continue
+            balls_detected = self.random_walk_till_detection(
+                detect_object="ball")
 
             target_bbox = self.get_target_ball_bbox(balls_detected)
 
@@ -349,7 +366,7 @@ class Robot:
             if self.distance_threshold and target_bbox.depth_in_cm and target_bbox.depth_in_cm > self.distance_threshold:
                 continue
 
-            if not self.move_to_target_ball_bbox(target_bbox, color_image):
+            if not self.move_to_target_ball_bbox(target_bbox):
                 continue
 
             if not self.pickup_ball():
