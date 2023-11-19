@@ -1,4 +1,3 @@
-
 import numpy as np
 import cv2
 import time
@@ -11,12 +10,12 @@ from april_tags.april_tag import AprilTag
 
 class Robot:
     def __init__(
-            self, ip="10.0.0.122", ball_should_be_within=(341, 255, 422, 338),
+            self, ip="10.0.0.122", ball_should_be_within=(206, 155, 350, 302),
             model="yolov8s.pt", port=9999, distance_threshold=200,
-            lever_down_potentiometer_reading=3300, lever_up_potentiometer_reading=3680,
-            long_dist_increase_speed_delta=5, dist_threshold=50, forward_speed=35, turning_speed=40, tolerance=4, compute_reference_box=False, angle_threshold=10, run_on_nano=False):
+            lever_down_potentiometer_reading=3400, lever_up_potentiometer_reading=3680,
+            long_dist_increase_speed_delta=5, dist_threshold=50, forward_speed=43, turning_speed=37, tolerance=5, compute_reference_box=False, angle_threshold=10, run_on_nano=False):
 
-        self.cam = cv2.VideoCapture(3)
+        self.cam = None
         self.communication_module = CommunicationModule.get_module(
             run_on_nano, ip, port)
         self.clear_motors()
@@ -35,7 +34,7 @@ class Robot:
         self.long_dist_increase_speed_delta = long_dist_increase_speed_delta
         self.april_tag_module = AprilTag(run_on_nano)
         self.angle_threshold = angle_threshold
-
+        self.switch_cam(type="usb")
         if compute_reference_box:
             self.reference_bbox = self.compute_reference_box()
             reference_bbox = self.reference_bbox
@@ -61,8 +60,10 @@ class Robot:
         cv2.waitKey(1)
 
     def compute_reference_box(self):
-        time.sleep(3)
+        time.sleep(2)
         color_image, depth_image = self.get_camera_pic(usb_cam=True)
+        from PIL import Image
+        Image.fromarray(color_image).save('check.jpeg')
         if np.sum(color_image) == 0:
             print('Image is empty')
             sys.exit(0)
@@ -77,6 +78,16 @@ class Robot:
     def get_claw_potentiometer_reading(self):
         sensor_readings = self.communication_module.get_sensor_readings()
         return sensor_readings[1]
+
+    def switch_cam(self, type="usb"):
+        if type == "usb":
+            self.communication_module.cam.pipeline.stop()
+            self.communication_module.cam.pipeline = None
+            self.cam = cv2.VideoCapture(0)
+        else:
+            self.cam.release()
+            self.cam = None
+            self.communication_module.cam.open()
 
     def get_camera_pic(self, usb_cam=False):
         if usb_cam:
@@ -112,17 +123,21 @@ class Robot:
         self.motor_vals[9] = -speed
         self.send_motor_vals()
 
-    def turn_right(self, speed=None):
+    def turn_right(self, speed=None, sharp=False):
         if speed is None:
             speed = self.turning_speed
         self.motor_vals[0] = -speed
         self.motor_vals[9] = 0
+        if sharp:
+            self.motor_vals[9] = -int(speed/2)
         self.send_motor_vals()
 
-    def turn_left(self, speed=None):
+    def turn_left(self, speed=None, sharp=False):
         if speed is None:
             speed = self.turning_speed
         self.motor_vals[0] = 0
+        if sharp:
+            self.motor_vals[0] = int(speed/2)
         self.motor_vals[9] = speed
         self.send_motor_vals()
 
@@ -145,13 +160,14 @@ class Robot:
         self.clear_motors(claw_has_ball)
         # Beyond this gravity will bring it down
         while self.get_lever_potentiometer_reading() > self.lever_down_potentiometer_reading:
+            print(self.get_lever_potentiometer_reading())
             self.motor_vals[6] = -40
             self.send_motor_vals()
 
     def lever_up(self, claw_has_ball=False):
         self.clear_motors(claw_has_ball)
         while self.get_lever_potentiometer_reading() < self.lever_up_potentiometer_reading:
-            self.motor_vals[6] = 40
+            self.motor_vals[6] = 60
             self.send_motor_vals()
         self.clear_motors(claw_has_ball)
 
@@ -174,7 +190,7 @@ class Robot:
         reference_bbox = self.reference_bbox
         # TODO : Maybe have some time constraint as well (1 min) if not sw
         iou = current_target_bbox.get_iou_with(reference_bbox)
-        while iou < 0.80:
+        while iou < 0.70:
             # TODO: Should calculate this based on checking how far the ball can be within the reference frame
             # i.e how much tolerance on x and y plane
             # TODO : Can also add some speed based numbers
@@ -208,36 +224,27 @@ class Robot:
             current_target_bbox = self.get_target_ball_bbox(balls_detected)
             iou = current_target_bbox.get_iou_with(reference_bbox)
 
-        self.clear_motors()
         print(
             f'Came out of the loop for :{(current_target_bbox.midx, current_target_bbox.midy)}')
         print(
             f'Reference coordinates    :{(reference_bbox.midx, reference_bbox.midy)}')
         print(f'IOU                      :{iou}')
 
+        self.move_forward(speed=40)
+        time.sleep(2.0)
+        self.clear_motors()
         return True
 
     def pickup_ball(self):
-        self.lever_down(claw_has_ball=False)
         self.close_claw()
         self.lever_up(claw_has_ball=True)
         return True  # TODO: Should return true or false based on pickup
 
-    def almost_reached_wall(self, x, y, target_angle, current_angle):
-        diff_in_angles = min((target_angle - current_angle) %
-                             360, (current_angle - target_angle) % 360)
-        target_close_to_wall = False
-        if target_angle == 0 and x > 134:
-            target_close_to_wall = True
-        elif target_angle == 90 and y > 62:
-            target_close_to_wall = True
-        elif target_angle == 180 and x < 10:
-            target_close_to_wall = True
-        elif target_angle == 270 and y < 10:
-            target_close_to_wall = True
-        else:
-            return False
-        if target_close_to_wall and diff_in_angles < self.angle_threshold:
+    def almost_reached_wall(self, x, y, target_angle, current_angle, max_time):
+        if time.time() > max_time:
+            print('Max time reachead')
+            return True
+        if y < 14 and (current_angle > 70 and current_angle < 110):
             return True
         else:
             return False
@@ -246,34 +253,43 @@ class Robot:
         color_image, _ = self.get_camera_pic()
         x, y, current_angle = self.april_tag_module.get_position_and_rotation_of_camera(
             color_image)
+        max_time = time.time() + 25
         almost_reached_wall = self.almost_reached_wall(
-            x, y, target_angle, current_angle)
+            x, y, target_angle, current_angle, max_time)
         while not almost_reached_wall:
-            # TODO Might have to make angle threshold small initally and increase it we get close tot he wall, doesn't matter.
-            diff_in_angles = min((target_angle - current_angle) %
-                                 360, (current_angle - target_angle) % 360)
-            if diff_in_angles < self.angle_threshold:
-                self.move_forward()
-            elif target_angle in [0, 90, 180]:
-                if current_angle > target_angle and current_angle < 180 + target_angle:
-                    self.turn_right()
-                else:
-                    self.turn_left()
+            if current_angle > 80 and current_angle < 100:
+                self.move_forward(speed=70)
+            elif current_angle > 270 or current_angle < 90:
+                self.turn_left(sharp=True)
             else:
-                if current_angle > 90 and current_angle < 270:
-                    self.turn_left()
-                else:
-                    self.turn_right()
+                self.turn_right(sharp=True)
+
+            # TODO Might have to make angle threshold small initally and increase it we get close tot he wall, doesn't matter.
+            # diff_in_angles = min((target_angle - current_angle) %
+            #                     360, (current_angle - target_angle) % 360)
+            # if diff_in_angles < self.angle_threshold:
+            #    self.move_forward()
+            # elif target_angle in [0, 90, 180]:
+            #    if current_angle > target_angle and current_angle < 180 + target_angle:
+            #        self.turn_right()
+            #    else:
+            #        self.turn_left()
+            # else:
+            #    if current_angle > 90 and current_angle < 270:
+            #        self.turn_left()
+            #    else:
+            #        self.turn_right()
 
             color_image, _ = self.get_camera_pic()
             location = self.april_tag_module.get_position_and_rotation_of_camera(
                 color_image)
+            print(f'Location : {location}')
 
             if location is not None:  # If its none, it will just use the previous values of x and y
                 x, y, current_angle = location
 
             almost_reached_wall = self.almost_reached_wall(
-                x, y, target_angle, current_angle)
+                x, y, target_angle, current_angle, max_time)
 
         self.move_forward()
         time.sleep(2)  # Its okay if the bot hits the wall. Go little extra
@@ -310,24 +326,30 @@ class Robot:
         location = self.april_tag_module.get_position_and_rotation_of_camera(
             color_image)
         while location is None:
-            self.random_walk_till_detection(
+            location = self.random_walk_till_detection(
                 detect_object="april_tag")
         x, y, _ = location
+        print(f'FINAL location is {location}')
         angle = self.find_target_angle(x, y)
+        print(f'TARGET Angle is {angle}')
+        angle = 90
         self.move_to_target_wall(angle)
 
     def drop_ball_and_reset(self):
         self.lever_down(claw_has_ball=True)
         self.open_claw()
         self.lever_up()
-        forward_time = time.time() + 2
-        while time.time() < forward_time:
-            self.move_backward()
+        backward_time = time.time() + 1.5
+        while time.time() < backward_time:
+            self.move_backward(speed=80)
+        self.lever_down()
         self.clear_motors()
 
     def random_walk_till_detection(self, detect_object="ball"):
         # Turn right for 5 seconds, then left for 5 seconds then move back for 2 seconds and repeat
         curr_time = time.time()
+        i = 0
+
         while True:
             if detect_object == "ball":
                 color_image, depth_image = self.get_camera_pic(usb_cam=True)
@@ -339,8 +361,12 @@ class Robot:
                     return balls_detected
             else:
                 color_image, _ = self.get_camera_pic()
+                from PIL import Image
+                i = i + 1
+                Image.fromarray(color_image).save(f'check{i}.jpeg')
                 location = self.april_tag_module.get_position_and_rotation_of_camera(
                     color_image)
+                print(location)
                 if location is not None:
                     return location
 
@@ -372,6 +398,10 @@ class Robot:
             if not self.pickup_ball():
                 continue
 
+            self.switch_cam(type="realsense")
+
             self.move_to_drop_off_location()
 
             self.drop_ball_and_reset()
+
+            self.switch_cam(type="usb")

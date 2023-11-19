@@ -69,26 +69,18 @@ class RealsenseCamera:
       self.open()
 
   def open(self):
-    try:
-      self.pipeline = rs.pipeline()
-      
-      config = rs.config()
-      config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, 30)
-      config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, 30)
-      profile = self.pipeline.start(config)
-      # intel realsense on jetson nano sometimes get misdetected as 2.1 even though it has 3.2 USB
-      # profile = self.pipeline.start()
+    self.pipeline = rs.pipeline()
+    
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, 30)
+    profile = self.pipeline.start(config)
+    # intel realsense on jetson nano sometimes get misdetected as 2.1 even though it has 3.2 USB
+    # profile = self.pipeline.start()
 
-      depth_sensor = profile.get_device().first_depth_sensor()
-      self.depth_scale = depth_sensor.get_depth_scale()
-      self.align = rs.align(rs.stream.color)
-
-    except Exception as e:
-      try:
-        self.pipeline.stop()
-      except:
-        pass
-      self.pipeline = None
+    depth_sensor = profile.get_device().first_depth_sensor()
+    self.depth_scale = depth_sensor.get_depth_scale()
+    self.align = rs.align(rs.stream.color)
 
   def capture(self) -> Tuple[bool, np.ndarray, np.ndarray]:
     """
