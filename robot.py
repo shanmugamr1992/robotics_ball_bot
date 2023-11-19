@@ -13,7 +13,7 @@ class Robot:
             self, ip="10.0.0.122", ball_should_be_within=(206, 155, 350, 302),
             model="yolov8s.pt", port=9999, distance_threshold=200,
             lever_down_potentiometer_reading=3400, lever_up_potentiometer_reading=3680,
-            long_dist_increase_speed_delta=5, dist_threshold=50, forward_speed=43, turning_speed=37, tolerance=5, compute_reference_box=False, angle_threshold=10, run_on_nano=False):
+            long_dist_increase_speed_delta=5, dist_threshold=50, forward_speed=43, turning_speed=37, tolerance=5, compute_reference_box=False, angle_threshold=10, run_on_nano=True):
 
         self.cam = None
         self.communication_module = CommunicationModule.get_module(
@@ -125,7 +125,7 @@ class Robot:
 
     def turn_right(self, speed=None, sharp=False):
         if speed is None:
-            speed = self.turning_speed
+            speed = self.turning_speed + 5
         self.motor_vals[0] = -speed
         self.motor_vals[9] = 0
         if sharp:
@@ -143,11 +143,10 @@ class Robot:
 
     def close_claw(self):
         self.clear_motors()
-        time.sleep(1)
+        time.sleep(0.2)
         self.motor_vals[7] = -50
         self.send_motor_vals()
         time.sleep(1.5)
-        # TODO: Add check to see if ball is picked up (potentiometer ?)
 
     def open_claw(self):
         self.motor_vals[7] = 50
@@ -231,12 +230,20 @@ class Robot:
         print(f'IOU                      :{iou}')
 
         self.move_forward(speed=40)
-        time.sleep(2.0)
+        time.sleep(1)
         self.clear_motors()
         return True
 
     def pickup_ball(self):
         self.close_claw()
+        if self.get_claw_potentiometer_reading() > 2450:
+            self.reset_to_initial_state()
+            return False
+        self.move_backward(speed=40)
+        time.sleep(1)
+        if self.get_claw_potentiometer_reading() > 2450:
+            self.reset_to_initial_state()
+            return False
         self.lever_up(claw_has_ball=True)
         return True  # TODO: Should return true or false based on pickup
 
@@ -249,10 +256,9 @@ class Robot:
         else:
             return False
 
-    def move_to_target_wall(self, target_angle):
+    def move_to_target_wall(self, target_angle, location):
         color_image, _ = self.get_camera_pic()
-        x, y, current_angle = self.april_tag_module.get_position_and_rotation_of_camera(
-            color_image)
+        x, y, current_angle = location
         max_time = time.time() + 25
         almost_reached_wall = self.almost_reached_wall(
             x, y, target_angle, current_angle, max_time)
@@ -292,7 +298,7 @@ class Robot:
                 x, y, target_angle, current_angle, max_time)
 
         self.move_forward()
-        time.sleep(2)  # Its okay if the bot hits the wall. Go little extra
+        time.sleep(0.4)  # Its okay if the bot hits the wall. Go little extra
         self.clear_motors
 
     def find_target_angle(self, x, y):
@@ -333,7 +339,7 @@ class Robot:
         angle = self.find_target_angle(x, y)
         print(f'TARGET Angle is {angle}')
         angle = 90
-        self.move_to_target_wall(angle)
+        self.move_to_target_wall(angle, location)
 
     def drop_ball_and_reset(self):
         self.lever_down(claw_has_ball=True)
@@ -349,7 +355,7 @@ class Robot:
         # Turn right for 5 seconds, then left for 5 seconds then move back for 2 seconds and repeat
         curr_time = time.time()
         i = 0
-
+        # TODO Come back to center and then turn left alone.
         while True:
             if detect_object == "ball":
                 color_image, depth_image = self.get_camera_pic(usb_cam=True)
@@ -361,9 +367,6 @@ class Robot:
                     return balls_detected
             else:
                 color_image, _ = self.get_camera_pic()
-                from PIL import Image
-                i = i + 1
-                Image.fromarray(color_image).save(f'check{i}.jpeg')
                 location = self.april_tag_module.get_position_and_rotation_of_camera(
                     color_image)
                 print(location)
@@ -371,16 +374,24 @@ class Robot:
                     return location
 
             if time.time() < curr_time + 5:
-                self.turn_right()
+                self.turn_left(sharp=True, speed=60)
             elif time.time() < curr_time + 10:
-                self.turn_left()
+                self.turn_right(sharp=True, speed=60)
             else:
                 self.move_backward()
                 time.sleep(2)
                 self.clear_motors()
                 curr_time = time.time()
 
+    def reset_to_initial_state(self):
+        if self.get_lever_potentiometer_reading() > 3000:
+            self.lever_down()
+        if self.get_claw_potentiometer_reading() > 10 and self.get_claw_potentiometer_reading() < 3800:
+            self.open_claw()
+
     def run(self):
+
+        self.reset_to_initial_state()
 
         while True:
             balls_detected = self.random_walk_till_detection(
